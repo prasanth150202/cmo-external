@@ -5,10 +5,11 @@ from app.models.brand_account import BrandAccount
 from app.models.oauth_token import OAuthToken
 from app.models.daily_metric import DailyMetric
 from app.models.campaign_metric import CampaignDailyMetric
+from app.models.campaign_classification import CampaignClassification
 from app.models.sync_job import SyncJob
 from app.models.suggestion_log import SuggestionLog
 
 __all__ = [
     "Tenant", "User", "Brand", "BrandAccount", "OAuthToken",
-    "DailyMetric", "CampaignDailyMetric", "SyncJob", "SuggestionLog",
+    "DailyMetric", "CampaignDailyMetric", "CampaignClassification", "SyncJob", "SuggestionLog",
 ]

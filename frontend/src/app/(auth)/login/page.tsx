@@ -20,7 +20,17 @@ export default function LoginPage() {
     try {
       const { data } = await axios.post("/api/v1/auth/login", { email, password });
       setTokens(data.access_token, data.refresh_token);
-      router.push("/overview");
+
+      // Send anyone who never finished setup back to onboarding instead of
+      // dropping them on an empty dashboard.
+      try {
+        const brands = await axios.get("/api/v1/brands", {
+          headers: { Authorization: `Bearer ${data.access_token}` },
+        });
+        router.push(Array.isArray(brands.data) && brands.data.length > 0 ? "/overview" : "/onboarding");
+      } catch {
+        router.push("/overview");
+      }
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, "Login failed"));
     } finally {

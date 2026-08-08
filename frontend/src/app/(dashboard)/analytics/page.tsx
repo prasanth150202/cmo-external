@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -26,7 +26,7 @@ function KpiCard({ label, value, sub, accent }: { label: string; value: string; 
 
 const tooltipStyle = { contentStyle: { background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }, labelStyle: { color: "#94a3b8" }, itemStyle: { color: "#f1f5f9" } };
 
-export default function AnalyticsPage() {
+function AnalyticsPageInner() {
   const searchParams = useSearchParams();
   const [daily, setDaily] = useState<any[]>([]);
   const [channels, setChannels] = useState<any[]>([]);
@@ -175,5 +175,13 @@ export default function AnalyticsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={null}>
+      <AnalyticsPageInner />
+    </Suspense>
   );
 }

@@ -34,15 +34,21 @@ def meta_status(
     return {"connected": token is not None}
 
 
+ALLOWED_RETURN_TO = {"settings", "onboarding"}
+
+
 @router.get("/connect")
 def connect_meta(
+    return_to: str = "settings",
     user: User = Depends(get_current_user),
 ):
     """Redirect agency owner to Meta OAuth consent screen."""
     if not settings.META_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Meta OAuth not configured. Add META_CLIENT_ID to .env")
+    if return_to not in ALLOWED_RETURN_TO:
+        return_to = "settings"
 
-    state = f"{user.tenant_id}:{uuid.uuid4().hex}"
+    state = f"{user.tenant_id}:{uuid.uuid4().hex}:{return_to}"
     _pending_states[state] = str(user.tenant_id)
 
     params = {
@@ -62,6 +68,8 @@ def meta_callback(code: str, state: str, db: Session = Depends(get_db)):
     tenant_id = _pending_states.pop(state, None)
     if not tenant_id:
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+
+    return_to = state.split(":")[-1] if state.count(":") >= 2 and state.split(":")[-1] in ALLOWED_RETURN_TO else "settings"
 
     # Exchange code for short-lived token
     with httpx.Client() as client:
@@ -110,7 +118,7 @@ def meta_callback(code: str, state: str, db: Session = Depends(get_db)):
         ))
 
     db.commit()
-    return RedirectResponse("http://localhost:3000/settings?meta=connected")
+    return RedirectResponse(f"{settings.FRONTEND_URL}/{return_to}?meta=connected")
 
 
 @router.delete("/disconnect")

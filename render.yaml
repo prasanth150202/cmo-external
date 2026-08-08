@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: cmo-external-api
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    region: singapore
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Supabase connection string (Project Settings → Database → Connection
+      # string → URI, "Direct connection" not the pooler). Render's own
+      # Postgres isn't provisioned here on purpose.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      # Must be a valid Fernet key (same format/value as your local .env) —
+      # generated values aren't guaranteed Fernet-compatible, set manually.
+      - key: ENCRYPTION_KEY
+        sync: false
+      # Your Vercel frontend URL(s), comma-separated, no trailing slash.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Your Vercel frontend URL, single origin, no trailing slash — OAuth
+      # callbacks (Meta/Google connect) redirect the browser back here.
+      - key: FRONTEND_URL
+        sync: false
+      - key: META_CLIENT_ID
+        sync: false
+      - key: META_CLIENT_SECRET
+        sync: false
+      - key: META_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_ADS_DEVELOPER_TOKEN
+        sync: false
+      - key: GOOGLE_ADS_LOGIN_CUSTOMER_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

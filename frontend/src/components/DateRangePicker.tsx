@@ -4,7 +4,15 @@ import { Calendar, ChevronDown } from "lucide-react";
 
 export type DateRange = { from: string; to: string; label: string };
 
-function fmt(d: Date) { return d.toISOString().slice(0, 10); }
+function fmt(d: Date) {
+  // Build from local date parts, not toISOString() — that converts to UTC and
+  // rolls back to "yesterday" for any positive-UTC-offset timezone (e.g. IST)
+  // during the hours when local time hasn't caught up to UTC midnight yet.
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 function today() { return fmt(new Date()); }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return fmt(d); }
 function startOfMonth() { const d = new Date(); return fmt(new Date(d.getFullYear(), d.getMonth(), 1)); }
@@ -21,6 +29,43 @@ export const PRESETS = [
   { label: "This Month",   from: () => startOfMonth(),     to: () => today() },
   { label: "Last Month",   from: () => startOfLastMonth(), to: () => endOfLastMonth() },
 ];
+
+/**
+ * Like usePersistedState, but preset-aware: "Today", "Last 7 Days" etc. store
+ * their label, and get their from/to *recomputed against the current date*
+ * on load — not restored as the frozen literal dates from whenever they were
+ * last saved. Otherwise "Today" silently keeps pointing at a stale day while
+ * still showing the label "Today". Only a genuine custom range (no matching
+ * preset) is restored as literal saved dates.
+ */
+export function usePersistedDateRange(key: string): [DateRange, (r: DateRange) => void] {
+  const [value, setValue] = useState<DateRange>(defaultRange());
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const stored: DateRange = JSON.parse(raw);
+        const preset = PRESETS.find(p => p.label === stored.label);
+        setValue(preset ? { from: preset.from(), to: preset.to(), label: preset.label } : stored);
+      }
+    } catch {
+      // ignore malformed/inaccessible storage — fall back to defaultRange()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  const update = (v: DateRange) => {
+    setValue(v);
+    try {
+      localStorage.setItem(key, JSON.stringify(v));
+    } catch {
+      // storage unavailable — value still works in-memory
+    }
+  };
+
+  return [value, update];
+}
 
 export function defaultRange(): DateRange {
   return { from: daysAgo(6), to: today(), label: "Last 7 Days" };

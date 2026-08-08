@@ -13,6 +13,7 @@ class CampaignDailyMetric(Base):
     account_id = Column(String(100), nullable=False)
     campaign_id = Column(String(100), nullable=False)
     campaign_name = Column(String(500))
+    status = Column(String(20))
     platform = Column(String(20), nullable=False)
     date = Column(Date, nullable=False)
     spend = Column(Numeric(15, 2), default=0)

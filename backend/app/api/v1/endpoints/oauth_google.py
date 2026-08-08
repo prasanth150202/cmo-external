@@ -32,13 +32,18 @@ def google_status(
     return {"connected": token is not None}
 
 
+ALLOWED_RETURN_TO = {"settings", "onboarding"}
+
+
 @router.get("/connect")
-def connect_google(user: User = Depends(get_current_user)):
+def connect_google(return_to: str = "settings", user: User = Depends(get_current_user)):
     """Redirect agency owner to Google OAuth consent screen."""
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google OAuth not configured. Add GOOGLE_CLIENT_ID to .env")
+    if return_to not in ALLOWED_RETURN_TO:
+        return_to = "settings"
 
-    state = f"{user.tenant_id}:{uuid.uuid4().hex}"
+    state = f"{user.tenant_id}:{uuid.uuid4().hex}:{return_to}"
     _pending_states[state] = str(user.tenant_id)
 
     params = {
@@ -60,6 +65,8 @@ def google_callback(code: str, state: str, db: Session = Depends(get_db)):
     tenant_id = _pending_states.pop(state, None)
     if not tenant_id:
         raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+
+    return_to = state.split(":")[-1] if state.count(":") >= 2 and state.split(":")[-1] in ALLOWED_RETURN_TO else "settings"
 
     with httpx.Client() as client:
         resp = client.post(GOOGLE_TOKEN_URL, data={
@@ -102,7 +109,7 @@ def google_callback(code: str, state: str, db: Session = Depends(get_db)):
         ))
 
     db.commit()
-    return RedirectResponse("http://localhost:3000/settings?google=connected")
+    return RedirectResponse(f"{settings.FRONTEND_URL}/{return_to}?google=connected")
 
 
 @router.delete("/disconnect")

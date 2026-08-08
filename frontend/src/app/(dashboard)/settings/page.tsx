@@ -136,21 +136,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* API Keys Reference */}
-      <div className="p-7 bg-white/5 border border-white/5 rounded-3xl space-y-4">
-        <h2 className="text-lg font-medium text-slate-200">Required Environment Variables</h2>
-        <p className="text-slate-500 text-sm">
-          Add these to your backend <code className="text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">.env</code> file — see <code className="text-indigo-400">API_SETUP.md</code>
-        </p>
-        <div className="space-y-2">
-          {["META_CLIENT_ID", "META_CLIENT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ADS_DEVELOPER_TOKEN", "GEMINI_API_KEY", "ENCRYPTION_KEY"].map(k => (
-            <div key={k} className="flex items-center gap-3 p-3 bg-black/20 rounded-xl border border-white/5">
-              <code className="text-indigo-400 text-sm font-mono">{k}</code>
-              <span className="text-slate-600 text-xs ml-auto">see API_SETUP.md</span>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

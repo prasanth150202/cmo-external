@@ -19,6 +19,7 @@ from app.models.campaign_metric import CampaignDailyMetric
 from app.services.token_vault import decrypt
 from app.services.meta import meta_service
 from app.services.google import google_service
+from app.services.classification import classify_campaigns
 
 ACCOUNT_CHUNK_DAYS = 90
 CAMPAIGN_CHUNK_DAYS = 30
@@ -89,6 +90,7 @@ def _upsert_campaigns(db: Session, tenant_id: str, account_id: str, platform: st
             "platform": platform,
             "campaign_id": r["campaign_id"],
             "campaign_name": r.get("campaign_name", ""),
+            "status": r.get("status"),
             "date": r["date"],
             "spend": r["spend"],
             "revenue": r["revenue"],
@@ -104,6 +106,7 @@ def _upsert_campaigns(db: Session, tenant_id: str, account_id: str, platform: st
         constraint="uq_campaign_metric",
         set_={
             "campaign_name": stmt.excluded.campaign_name,
+            "status": stmt.excluded.status,
             "spend": stmt.excluded.spend,
             "revenue": stmt.excluded.revenue,
             "roas": stmt.excluded.roas,
@@ -175,6 +178,12 @@ def _sync_google(db: Session, tenant_id: str, account_id: str, token: OAuthToken
                     raise
                 time.sleep(2 ** attempt)
 
+    try:
+        category_rows = google_service.fetch_campaign_conversion_categories(access_token, refresh_token, account_id, date_from, date_to)
+        classify_campaigns(db, tenant_id, account_id, "GOOGLE", category_rows)
+    except RuntimeError:
+        pass  # classification is supplementary — never fail the sync over it
+
     return total
 
 
@@ -222,3 +231,31 @@ def sync_account(db: Session, tenant_id: str, brand_account: BrandAccount, days_
     db.commit()
     db.refresh(job)
     return job
+
+
+def sync_all_accounts(days_back: int = 3) -> dict:
+    """
+    Scheduled entry point — syncs every connected account across every tenant.
+    Runs outside any request context, so it opens its own DB session and never
+    lets one tenant's/account's failure stop the rest of the batch.
+    """
+    from app.db.engine import SessionLocal
+
+    db = SessionLocal()
+    synced, failed = 0, 0
+    try:
+        accounts = db.query(BrandAccount).all()
+        for account in accounts:
+            try:
+                job = sync_account(db, str(account.tenant_id), account, days_back)
+                if job.status == "completed":
+                    synced += 1
+                else:
+                    failed += 1
+            except Exception:
+                # sync_account already catches and records its own errors on the
+                # job row — this is only for something unexpected before/after that.
+                failed += 1
+    finally:
+        db.close()
+    return {"accounts_synced": synced, "accounts_failed": failed}

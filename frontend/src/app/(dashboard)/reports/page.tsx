@@ -10,7 +10,7 @@ export default function ReportsPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get("/dashboard/sync-jobs").catch(() => ({ data: [] })),
+      api.get("/dashboard/sync-status").catch(() => ({ data: [] })),
       api.get("/brands/overview").catch(() => ({ data: [] })),
     ]).then(([j, b]) => {
       setSyncJobs(j.data || []);

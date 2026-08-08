@@ -1,43 +1,53 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, Zap, TrendingUp, TrendingDown, Tag } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, Tag } from "lucide-react";
 import api from "@/lib/api";
-import DateRangePicker, { defaultRange, type DateRange } from "@/components/DateRangePicker";
+import DateRangePicker, { usePersistedDateRange } from "@/components/DateRangePicker";
+import PlatformFilter, { type Platform } from "@/components/PlatformFilter";
+import { usePersistedState } from "@/lib/usePersistedState";
 
 const fmtMoney = (v: number) => "₹" + Math.round(v).toLocaleString("en-IN");
 
 export default function OverviewPage() {
   const router = useRouter();
   const [brands, setBrands] = useState<any[]>([]);
-  const [dateRange, setDateRange] = useState<DateRange>(defaultRange());
+  const [dateRange, setDateRange] = usePersistedDateRange("cmo_date_range");
+  const [platform, setPlatform] = usePersistedState<Platform>("cmo_platform_filter", "");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "table">("table");
 
-  const fetchBrands = async (from: string, to: string) => {
+  // Guards against out-of-order responses: two fetches can fire back-to-back
+  // (e.g. the default range, immediately followed by the persisted range
+  // loading in) and resolve in reverse order — without this, the slower/older
+  // response can overwrite the newer one even though it's already stale.
+  const requestIdRef = useRef(0);
+
+  const fetchBrands = async (from: string, to: string, plat: Platform) => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
-      const { data } = await api.get(`/brands/overview?date_from=${from}&date_to=${to}`);
-      setBrands(data || []);
-    } catch { setBrands([]); }
-    finally { setLoading(false); }
+      const params = new URLSearchParams({ date_from: from, date_to: to });
+      if (plat) params.set("platform", plat);
+      const { data } = await api.get(`/brands/overview?${params}`);
+      if (requestId === requestIdRef.current) setBrands(data || []);
+    } catch {
+      if (requestId === requestIdRef.current) setBrands([]);
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
   };
 
-  useEffect(() => { fetchBrands(dateRange.from, dateRange.to); }, [dateRange.from, dateRange.to]);
+  useEffect(() => { fetchBrands(dateRange.from, dateRange.to, platform); }, [dateRange.from, dateRange.to, platform]);
 
-  const handleSync = async (type: "recent" | "history") => {
+  const handleRefresh = async () => {
     setSyncing(true); setSyncMsg("");
     try {
-      if (type === "history") {
-        await api.post("/dashboard/sync-history?days=90");
-        setSyncMsg("✅ 90-day history synced.");
-      } else {
-        await api.post("/dashboard/sync-recent");
-        setSyncMsg("✅ Recent data synced.");
-      }
-      fetchBrands(dateRange.from, dateRange.to);
+      await api.post("/dashboard/sync", { force_recent: true });
+      setSyncMsg("✅ Sync started — check Reports for progress.");
+      fetchBrands(dateRange.from, dateRange.to, platform);
     } catch { setSyncMsg("❌ Sync failed — check platform connections in Settings"); }
     finally { setSyncing(false); }
   };
@@ -53,6 +63,7 @@ export default function OverviewPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <PlatformFilter value={platform} onChange={setPlatform} />
           <DateRangePicker value={dateRange} onChange={setDateRange} />
 
           <div className="flex p-1 rounded-xl border" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
@@ -66,21 +77,11 @@ export default function OverviewPage() {
             </button>
           </div>
 
-          <button onClick={() => fetchBrands(dateRange.from, dateRange.to)}
-            className="p-2.5 rounded-xl border transition-all text-slate-400 hover:text-white hover:bg-white/5"
+          <button onClick={handleRefresh} disabled={syncing}
+            title="Sync latest data now — accounts also auto-sync every few hours in the background"
+            className="p-2.5 rounded-xl border transition-all text-slate-400 hover:text-white hover:bg-white/5 disabled:opacity-50"
             style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          </button>
-          <button onClick={() => handleSync("recent")} disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium text-white transition-all hover:bg-white/5 disabled:opacity-50"
-            style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-            <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing..." : "Sync Recent"}
-          </button>
-          <button onClick={() => handleSync("history")} disabled={syncing}
-            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 font-medium text-sm">
-            <Zap className={`w-4 h-4 fill-current ${syncing ? "animate-pulse" : ""}`} />
-            {syncing ? "Syncing..." : "Sync History"}
+            <RefreshCw className={`w-4 h-4 ${syncing || loading ? "animate-spin" : ""}`} />
           </button>
         </div>
       </div>
@@ -110,7 +111,8 @@ export default function OverviewPage() {
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           {brands.map((b) => {
             const roas = b.roas ?? 0;
-            const roasOk = roas >= (b.target_roas || 0);
+            const pureLeadGen = b.has_lead_gen && (b.revenue ?? 0) === 0;
+            const roasOk = pureLeadGen ? true : roas >= (b.target_roas || 0);
             return (
               <div key={b.id} className="text-left p-5 rounded-2xl border bg-white/5 border-white/5 hover:border-indigo-500/50 hover:-translate-y-0.5 transition-all cursor-pointer"
                 onClick={() => router.push(`/brands/${b.id}`)}>
@@ -124,28 +126,40 @@ export default function OverviewPage() {
                     <p className="text-[10px] text-slate-500 truncate">{b.industry || "—"}</p>
                   </div>
                   <div className="ml-auto shrink-0">
-                    {roasOk ? <TrendingUp className="w-4 h-4 text-emerald-500" /> : <TrendingDown className="w-4 h-4 text-amber-500" />}
+                    {pureLeadGen ? null : roasOk ? <TrendingUp className="w-4 h-4 text-emerald-500" /> : <TrendingDown className="w-4 h-4 text-amber-500" />}
                   </div>
                 </div>
                 <div className="space-y-3">
-                  {[
-                    { label: "Spend",   value: fmtMoney(b.spend ?? 0),   className: "text-white" },
-                    { label: "Revenue", value: fmtMoney(b.revenue ?? 0), className: "text-emerald-400" },
-                  ].map(({ label, value, className }) => (
-                    <div key={label} className="flex justify-between items-center">
-                      <span className="text-[10px] text-slate-500 uppercase font-medium tracking-wider">{label}</span>
-                      <span className={`text-sm font-medium ${className}`}>{value}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-slate-500 uppercase font-medium tracking-wider">Spend</span>
+                    <span className="text-sm font-medium text-white">{fmtMoney(b.spend ?? 0)}</span>
+                  </div>
+                  {pureLeadGen ? (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] text-slate-500 uppercase font-medium tracking-wider">Leads</span>
+                      <span className="text-sm font-medium text-amber-400">{b.lead_count ?? 0}</span>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] text-slate-500 uppercase font-medium tracking-wider">Revenue</span>
+                      <span className="text-sm font-medium text-emerald-400">{fmtMoney(b.revenue ?? 0)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center bg-white/5 p-2 rounded-lg -mx-2 px-2">
-                    <span className="text-[10px] text-slate-500 uppercase font-medium tracking-wider">ROAS</span>
-                    <span className={`text-sm font-medium ${roasOk ? "text-emerald-400" : "text-amber-400"}`}>{roas.toFixed(2)}×</span>
+                    <span className="text-[10px] text-slate-500 uppercase font-medium tracking-wider">{pureLeadGen ? "Cost/Lead" : "ROAS"}</span>
+                    <span className={`text-sm font-medium ${pureLeadGen ? "text-amber-400" : roasOk ? "text-emerald-400" : "text-amber-400"}`}>
+                      {pureLeadGen ? (b.cost_per_lead != null ? fmtMoney(b.cost_per_lead) : "—") : `${roas.toFixed(2)}×`}
+                    </span>
                   </div>
                 </div>
                 <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
-                  <span className={`text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-lg ${roasOk ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
-                    {roasOk ? "On Target" : "Below Target"}
-                  </span>
+                  {pureLeadGen ? (
+                    <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-lg bg-sky-500/10 text-sky-400">Lead Gen</span>
+                  ) : (
+                    <span className={`text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-lg ${roasOk ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                      {roasOk ? "On Target" : "Below Target"}
+                    </span>
+                  )}
                   <span className="text-[10px] text-slate-500 font-medium">{b.accounts?.length || 0} acct{b.accounts?.length !== 1 ? "s" : ""}</span>
                 </div>
               </div>
@@ -165,7 +179,8 @@ export default function OverviewPage() {
             <tbody className="divide-y divide-white/5">
               {brands.map((b) => {
                 const roas = b.roas ?? 0;
-                const roasOk = roas >= (b.target_roas || 0);
+                const pureLeadGen = b.has_lead_gen && (b.revenue ?? 0) === 0;
+                const roasOk = pureLeadGen ? true : roas >= (b.target_roas || 0);
                 return (
                   <tr key={b.id} className="hover:bg-white/5 transition-colors cursor-pointer"
                     onClick={() => router.push(`/brands/${b.id}`)}>
@@ -182,19 +197,34 @@ export default function OverviewPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${roasOk ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${roasOk ? "bg-emerald-500" : "bg-amber-500"}`} />
-                        {roasOk ? "On Target" : "Below Target"}
-                      </span>
+                      {pureLeadGen ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/10 text-sky-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                          Lead Gen
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${roasOk ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${roasOk ? "bg-emerald-500" : "bg-amber-500"}`} />
+                          {roasOk ? "On Target" : "Below Target"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right"><p className="text-sm font-medium text-white">{fmtMoney(b.spend ?? 0)}</p></td>
-                    <td className="px-6 py-4 text-right"><p className="text-sm font-semibold text-emerald-400">{fmtMoney(b.revenue ?? 0)}</p></td>
-                    <td className="px-6 py-4 text-right"><p className="text-sm font-medium text-slate-400">{(b.target_roas || 0).toFixed(1)}×</p></td>
+                    {pureLeadGen ? (
+                      <td className="px-6 py-4 text-right"><p className="text-sm font-semibold text-amber-400">{b.lead_count ?? 0} leads</p></td>
+                    ) : (
+                      <td className="px-6 py-4 text-right"><p className="text-sm font-semibold text-emerald-400">{fmtMoney(b.revenue ?? 0)}</p></td>
+                    )}
+                    <td className="px-6 py-4 text-right"><p className="text-sm font-medium text-slate-400">{pureLeadGen ? "—" : `${(b.target_roas || 0).toFixed(1)}×`}</p></td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <span className={`text-sm font-bold ${roasOk ? "text-emerald-400" : "text-amber-400"}`}>{roas.toFixed(2)}×</span>
-                        {roasOk ? <TrendingUp className="w-3.5 h-3.5 text-emerald-500" /> : <TrendingDown className="w-3.5 h-3.5 text-amber-500" />}
-                      </div>
+                      {pureLeadGen ? (
+                        <span className="text-sm font-bold text-amber-400">{b.cost_per_lead != null ? `${fmtMoney(b.cost_per_lead)}/lead` : "—"}</span>
+                      ) : (
+                        <div className="flex items-center justify-end gap-2">
+                          <span className={`text-sm font-bold ${roasOk ? "text-emerald-400" : "text-amber-400"}`}>{roas.toFixed(2)}×</span>
+                          {roasOk ? <TrendingUp className="w-3.5 h-3.5 text-emerald-500" /> : <TrendingDown className="w-3.5 h-3.5 text-amber-500" />}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

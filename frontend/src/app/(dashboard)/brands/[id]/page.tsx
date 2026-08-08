@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, RefreshCw, ChevronRight, ChevronUp, ChevronDown,
@@ -10,7 +10,9 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import api from "@/lib/api";
-import DateRangePicker, { defaultRange, type DateRange } from "@/components/DateRangePicker";
+import DateRangePicker, { usePersistedDateRange, type DateRange } from "@/components/DateRangePicker";
+import PlatformFilter, { type Platform } from "@/components/PlatformFilter";
+import { usePersistedState } from "@/lib/usePersistedState";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 const fmtMoney = (v: number) => "₹" + Math.round(v).toLocaleString("en-IN");
@@ -228,7 +230,8 @@ export default function BrandDetailPage() {
   const [daily,     setDaily]     = useState<any[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [loading,   setLoading]   = useState(true);
-  const [range,     setRange]     = useState<DateRange>(defaultRange());
+  const [range,     setRange]     = usePersistedDateRange("cmo_date_range");
+  const [platform,  setPlatform]  = usePersistedState<Platform>("cmo_platform_filter", "");
   const [drill,     setDrill]     = useState<DrillState | null>(null);
 
   // Campaign table state
@@ -237,32 +240,38 @@ export default function BrandDetailPage() {
   const [campFilter,     setCampFilter]     = useState<"LIVE" | "ALL">("LIVE");
   const [createdInRange, setCreatedInRange] = useState(false);
 
+  // See Overview page for why this guard exists — prevents an older,
+  // slower-to-resolve fetch from clobbering a newer one's results.
+  const requestIdRef = useRef(0);
+
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
-    const params = `brand_id=${id}&date_from=${range.from}&date_to=${range.to}`;
+    const params = `brand_id=${id}&date_from=${range.from}&date_to=${range.to}${platform ? `&platform=${platform}` : ""}`;
     try {
       const [brandsRes, overviewRes, campaignsRes] = await Promise.all([
         api.get("/brands"),
         api.get(`/analytics/overview?${params}`),
         api.get(`/analytics/campaigns?${params}`),
       ]);
-      const found = (brandsRes.data as any[]).find((b: any) => b.id === id);
-      setBrand(found ?? null);
-      setDaily(overviewRes.data.daily ?? []);
-      setCampaigns(campaignsRes.data.campaigns ?? []);
+      if (requestId === requestIdRef.current) {
+        const found = (brandsRes.data as any[]).find((b: any) => b.id === id);
+        setBrand(found ?? null);
+        setDaily(overviewRes.data.daily ?? []);
+        setCampaigns(campaignsRes.data.campaigns ?? []);
+      }
     } catch {
-      setBrand(null); setDaily([]); setCampaigns([]);
+      if (requestId === requestIdRef.current) { setBrand(null); setDaily([]); setCampaigns([]); }
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [id, range.from, range.to]);
+  }, [id, range.from, range.to, platform]);
 
   useEffect(() => { load(); }, [load]);
 
   // ── Derived metrics ──
   const totalSpend   = daily.reduce((s, d) => s + (d.spend       ?? 0), 0);
   const totalRevenue = daily.reduce((s, d) => s + (d.revenue     ?? 0), 0);
-  const totalConv    = daily.reduce((s, d) => s + (d.conversions ?? 0), 0);
   const totalClicks  = daily.reduce((s, d) => s + (d.clicks      ?? 0), 0);
   const avgRoas      = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
@@ -273,6 +282,21 @@ export default function BrandDetailPage() {
 
   const targetRoas = brand?.target_roas ?? 0;
   const roasOk     = targetRoas > 0 && avgRoas >= targetRoas;
+
+  // ── Sales vs Lead Gen split (from campaign-level classification) ──
+  const salesCampaigns = campaigns.filter((c: any) => c.campaign_type !== "LEAD_GEN");
+  const leadCampaigns  = campaigns.filter((c: any) => c.campaign_type === "LEAD_GEN");
+  const salesSpend     = salesCampaigns.reduce((s, c: any) => s + (c.spend ?? 0), 0);
+  const salesRevenue   = salesCampaigns.reduce((s, c: any) => s + (c.revenue ?? 0), 0);
+  const salesConv      = salesCampaigns.reduce((s, c: any) => s + (c.conversions ?? 0), 0);
+  const salesRoas      = salesSpend > 0 ? salesRevenue / salesSpend : 0;
+  const leadSpend      = leadCampaigns.reduce((s, c: any) => s + (c.spend ?? 0), 0);
+  const leadCount      = leadCampaigns.reduce((s, c: any) => s + (c.conversions ?? 0), 0);
+  const leadClicks     = leadCampaigns.reduce((s, c: any) => s + (c.clicks ?? 0), 0);
+  const costPerLead    = leadCount > 0 ? leadSpend / leadCount : 0;
+  const leadConvRate   = leadClicks > 0 ? (leadCount / leadClicks) * 100 : 0;
+  const hasLeadGen     = leadCampaigns.length > 0;
+  const pureLeadGen    = hasLeadGen && salesCampaigns.length === 0;
 
   // ── Campaign filtering ──
   const liveCampaigns = campaigns.filter((c: any) => (c.status || "").toUpperCase() === "ACTIVE");
@@ -330,6 +354,7 @@ export default function BrandDetailPage() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <PlatformFilter value={platform} onChange={setPlatform} />
             <DateRangePicker value={range} onChange={setRange} />
             <button
               onClick={load}
@@ -343,26 +368,58 @@ export default function BrandDetailPage() {
 
         {/* ── KPI Cards ── */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          <KpiCard label="Revenue" loading={loading}
-            value={fmtMoney(totalRevenue)} sub={range.label}
-            accentColor="#22c55e" textColor="text-emerald-400"
-            sparkValues={daily.map(d => d.revenue)} />
-          <KpiCard label="ROAS" loading={loading}
-            value={`${avgRoas.toFixed(2)}×`}
-            sub={targetRoas > 0
-              ? `Target ${targetRoas}× · ${roasTrend >= 0 ? "↑" : "↓"} ${Math.abs(roasTrend).toFixed(1)}% trend`
-              : `Trend ${roasTrend >= 0 ? "↑" : "↓"} ${Math.abs(roasTrend).toFixed(1)}%`}
-            accentColor={roasOk ? "#14b8a6" : "#f59e0b"} textColor={roasOk ? "text-teal-400" : "text-amber-400"}
-            sparkValues={daily.map(d => d.roas)} />
-          <KpiCard label="Spend" loading={loading}
-            value={fmtMoney(totalSpend)} sub={range.label}
-            accentColor="#3b82f6" textColor="text-white"
-            sparkValues={daily.map(d => d.spend)} />
-          <KpiCard label="Conversions" loading={loading}
-            value={fmtNum(totalConv)}
-            sub={totalConv > 0 ? `CPA ${fmtMoney(totalSpend / totalConv)}` : "CPA —"}
-            accentColor="#a855f7" textColor="text-purple-400"
-            sparkValues={daily.map(d => d.conversions)} />
+          {pureLeadGen ? (
+            <>
+              <KpiCard label="Leads" loading={loading}
+                value={fmtNum(leadCount)} sub={range.label}
+                accentColor="#f59e0b" textColor="text-amber-400"
+                sparkValues={daily.map(d => d.lead_count)} />
+              <KpiCard label="Cost Per Lead" loading={loading}
+                value={costPerLead > 0 ? fmtMoney(costPerLead) : "—"} sub={range.label}
+                accentColor="#f59e0b" textColor="text-amber-400"
+                sparkValues={daily.map(d => d.cost_per_lead ?? 0)} />
+              <KpiCard label="Spend" loading={loading}
+                value={fmtMoney(totalSpend)} sub={range.label}
+                accentColor="#3b82f6" textColor="text-white"
+                sparkValues={daily.map(d => d.spend)} />
+              <KpiCard label="Lead Conv. Rate" loading={loading}
+                value={leadClicks > 0 ? `${leadConvRate.toFixed(1)}%` : "—"}
+                sub={leadClicks > 0 ? `${fmtNum(leadClicks)} clicks` : "No clicks"}
+                accentColor="#a855f7" textColor="text-purple-400"
+                sparkValues={daily.map(d => d.lead_count)} />
+            </>
+          ) : (
+            <>
+              <KpiCard label="Sales Revenue" loading={loading}
+                value={fmtMoney(salesRevenue)} sub={salesCampaigns.length > 0 ? range.label : "No sales campaigns"}
+                accentColor="#22c55e" textColor="text-emerald-400"
+                sparkValues={daily.map(d => d.revenue)} />
+              <KpiCard label="Sales ROAS" loading={loading}
+                value={`${salesRoas.toFixed(2)}×`}
+                sub={salesCampaigns.length === 0 ? "No sales campaigns" : targetRoas > 0
+                  ? `Target ${targetRoas}× · ${roasTrend >= 0 ? "↑" : "↓"} ${Math.abs(roasTrend).toFixed(1)}% trend`
+                  : `Trend ${roasTrend >= 0 ? "↑" : "↓"} ${Math.abs(roasTrend).toFixed(1)}%`}
+                accentColor={roasOk ? "#14b8a6" : "#f59e0b"} textColor={roasOk ? "text-teal-400" : "text-amber-400"}
+                sparkValues={daily.map(d => d.roas)} />
+              <KpiCard label="Spend" loading={loading}
+                value={fmtMoney(totalSpend)} sub={range.label}
+                accentColor="#3b82f6" textColor="text-white"
+                sparkValues={daily.map(d => d.spend)} />
+              {hasLeadGen ? (
+                <KpiCard label="Leads" loading={loading}
+                  value={fmtNum(leadCount)}
+                  sub={costPerLead > 0 ? `Cost/Lead ${fmtMoney(costPerLead)}` : "Cost/Lead —"}
+                  accentColor="#f59e0b" textColor="text-amber-400"
+                  sparkValues={daily.map(d => d.lead_count)} />
+              ) : (
+                <KpiCard label="Conversions" loading={loading}
+                  value={fmtNum(salesConv)}
+                  sub={salesConv > 0 ? `CPA ${fmtMoney(salesSpend / salesConv)}` : "CPA —"}
+                  accentColor="#a855f7" textColor="text-purple-400"
+                  sparkValues={daily.map(d => d.conversions)} />
+              )}
+            </>
+          )}
         </div>
 
         {/* ── Stat row ── */}
@@ -393,10 +450,10 @@ export default function BrandDetailPage() {
 
         {/* ── Charts ── */}
         <div className="grid grid-cols-2 gap-5">
-          {/* Spend vs Revenue */}
+          {/* Spend vs Revenue (or Leads, for Lead Gen brands) */}
           <div className="p-6 bg-white/5 border border-white/5 rounded-2xl">
             <div className="flex items-center justify-between mb-5">
-              <p className="text-xs font-medium uppercase tracking-widest text-slate-500">Spend vs Revenue</p>
+              <p className="text-xs font-medium uppercase tracking-widest text-slate-500">{hasLeadGen ? "Spend vs Leads" : "Spend vs Revenue"}</p>
               <span className="text-[10px] text-slate-600 font-mono">{daily.length}-day</span>
             </div>
             {loading ? (
@@ -413,36 +470,51 @@ export default function BrandDetailPage() {
                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                       </linearGradient>
                       <linearGradient id="gRevBd" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                        <stop offset="5%"  stopColor={hasLeadGen ? "#f59e0b" : "#22c55e"} stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor={hasLeadGen ? "#f59e0b" : "#22c55e"} stopOpacity={0}/>
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(99,140,255,0.07)" />
                     <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 10 }} tickFormatter={v => v.slice(5)} />
-                    <YAxis tick={{ fill: "#475569", fontSize: 10 }} tickFormatter={fmtShort} />
-                    <Tooltip {...ttStyle} formatter={(v: number) => fmtMoney(v)} />
-                    <Area type="monotone" dataKey="spend"   stroke="#3b82f6" strokeWidth={2} fill="url(#gSpendBd)" name="Spend"   dot={false} />
-                    <Area type="monotone" dataKey="revenue" stroke="#22c55e" strokeWidth={2} fill="url(#gRevBd)"   name="Revenue" dot={false} />
+                    <YAxis yAxisId="spend" tick={{ fill: "#475569", fontSize: 10 }} tickFormatter={fmtShort} />
+                    {hasLeadGen && <YAxis yAxisId="leads" orientation="right" tick={{ fill: "#475569", fontSize: 10 }} allowDecimals={false} />}
+                    <Tooltip {...ttStyle} formatter={(v: number, name: string) => hasLeadGen && name === "Leads" ? v : fmtMoney(v)} />
+                    <Area yAxisId="spend" type="monotone" dataKey="spend" stroke="#3b82f6" strokeWidth={2} fill="url(#gSpendBd)" name="Spend" dot={false} />
+                    {hasLeadGen ? (
+                      <Area yAxisId="leads" type="monotone" dataKey="lead_count" stroke="#f59e0b" strokeWidth={2} fill="url(#gRevBd)" name="Leads" dot={false} />
+                    ) : (
+                      <Area yAxisId="spend" type="monotone" dataKey="sales_revenue" stroke="#22c55e" strokeWidth={2} fill="url(#gRevBd)" name="Revenue" dot={false} />
+                    )}
                   </AreaChart>
                 </ResponsiveContainer>
                 <div className="flex gap-5 mt-2 text-[10px] font-medium uppercase text-slate-500">
                   <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-blue-500/75 inline-block"/>Spend</span>
-                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-500/75 inline-block"/>Revenue</span>
+                  <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-sm inline-block ${hasLeadGen ? "bg-amber-500/75" : "bg-emerald-500/75"}`}/>{hasLeadGen ? "Leads" : "Revenue"}</span>
                 </div>
               </>
             )}
           </div>
 
-          {/* ROAS Trend */}
+          {/* ROAS Trend (or Cost-Per-Lead Trend, for Lead Gen brands) */}
           <div className="p-6 bg-white/5 border border-white/5 rounded-2xl">
             <div className="flex items-center justify-between mb-5">
-              <p className="text-xs font-medium uppercase tracking-widest text-slate-500">ROAS Trend</p>
-              {targetRoas > 0 && <span className="text-[10px] text-slate-600 font-mono">Target {targetRoas}×</span>}
+              <p className="text-xs font-medium uppercase tracking-widest text-slate-500">{hasLeadGen ? "Cost Per Lead Trend" : "ROAS Trend"}</p>
+              {!hasLeadGen && targetRoas > 0 && <span className="text-[10px] text-slate-600 font-mono">Target {targetRoas}×</span>}
             </div>
             {loading ? (
               <div className="h-48 animate-pulse bg-white/5 rounded-xl" />
             ) : daily.length === 0 ? (
               <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+            ) : hasLeadGen ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={daily}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(99,140,255,0.07)" />
+                  <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 10 }} tickFormatter={v => v.slice(5)} />
+                  <YAxis tick={{ fill: "#475569", fontSize: 10 }} tickFormatter={fmtShort} />
+                  <Tooltip {...ttStyle} formatter={(v: number) => v > 0 ? `${fmtMoney(v)}/lead` : "No leads"} />
+                  <Bar dataKey="cost_per_lead" fill="#f59e0b" radius={[3, 3, 0, 0]} name="Cost/Lead" opacity={0.85} />
+                </BarChart>
+              </ResponsiveContainer>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={daily}>
@@ -450,7 +522,7 @@ export default function BrandDetailPage() {
                   <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 10 }} tickFormatter={v => v.slice(5)} />
                   <YAxis tick={{ fill: "#475569", fontSize: 10 }} tickFormatter={v => v + "×"} />
                   <Tooltip {...ttStyle} formatter={(v: number) => v.toFixed(2) + "×"} />
-                  <Bar dataKey="roas" fill={roasOk ? "#14b8a6" : "#f59e0b"} radius={[3, 3, 0, 0]} name="ROAS" opacity={0.85} />
+                  <Bar dataKey="sales_roas" fill={roasOk ? "#14b8a6" : "#f59e0b"} radius={[3, 3, 0, 0]} name="ROAS" opacity={0.85} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -542,9 +614,10 @@ export default function BrandDetailPage() {
                   <tr className="border-b border-white/5">
                     <SortTh col="campaign_name" label="Campaign"   sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} />
                     <SortTh col="platform"      label="Platform"   sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} />
+                    <SortTh col="campaign_type" label="Type"       sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} />
                     <SortTh col="spend"         label="Spend"      sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} right />
                     <SortTh col="revenue"       label="Revenue"    sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} right />
-                    <SortTh col="roas"          label="ROAS"       sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} right />
+                    <SortTh col="roas"          label="ROAS / CPL" sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} right />
                     <SortTh col="conversions"   label="Conv"       sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} right />
                     <SortTh col="impressions"   label="Impr"       sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} right />
                     <SortTh col="clicks"        label="Clicks"     sortCol={sortCol} sortAsc={sortAsc} onSort={toggleSort} right />
@@ -555,6 +628,7 @@ export default function BrandDetailPage() {
                   {sortedCampaigns.map((c: any) => {
                     const isRoasOk  = targetRoas > 0 ? c.roas >= targetRoas : c.roas >= 2;
                     const isSelected = drill?.campaignId === c.campaign_id;
+                    const isLeadGen = c.campaign_type === "LEAD_GEN";
                     return (
                       <tr
                         key={c.campaign_id}
@@ -588,13 +662,28 @@ export default function BrandDetailPage() {
                               : "bg-emerald-500/10 text-emerald-400"
                           }`}>{c.platform}</span>
                         </td>
+                        <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                          <span
+                            title="Detected from the campaign's conversion goal in Google/Meta"
+                            className={`inline-block text-[10px] font-medium px-2 py-1.5 rounded-lg border bg-black/20 ${
+                              isLeadGen ? "text-amber-400 border-amber-500/20" : "text-sky-400 border-sky-500/20"
+                            }`}>
+                            {isLeadGen ? "Lead Gen" : "Sales"}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-right"><p className="text-sm font-medium text-white">{fmtMoney(c.spend)}</p></td>
                         <td className="px-4 py-3 text-right"><p className="text-sm font-semibold text-emerald-400">{fmtMoney(c.revenue)}</p></td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <span className={`text-sm font-bold ${isRoasOk ? "text-emerald-400" : "text-amber-400"}`}>{c.roas.toFixed(2)}×</span>
-                            {isRoasOk ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <TrendingDown className="w-3 h-3 text-amber-500" />}
-                          </div>
+                          {isLeadGen ? (
+                            <p className="text-sm font-bold text-amber-400">
+                              {c.cost_per_lead != null ? `${fmtMoney(c.cost_per_lead)}/lead` : "—"}
+                            </p>
+                          ) : (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span className={`text-sm font-bold ${isRoasOk ? "text-emerald-400" : "text-amber-400"}`}>{c.roas.toFixed(2)}×</span>
+                              {isRoasOk ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <TrendingDown className="w-3 h-3 text-amber-500" />}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right"><p className="text-sm text-slate-300">{fmtNum(c.conversions)}</p></td>
                         <td className="px-4 py-3 text-right"><p className="text-sm text-slate-400">{fmtNum(c.impressions)}</p></td>

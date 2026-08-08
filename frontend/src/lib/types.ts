@@ -28,6 +28,9 @@ export interface BrandOverview extends Brand {
   revenue: number;
   roas: number;
   conversions: number;
+  has_lead_gen: boolean;
+  lead_count: number;
+  cost_per_lead?: number | null;
 }
 
 export interface KPISummary {
@@ -67,6 +70,7 @@ export interface CampaignRow {
   campaign_id: string;
   campaign_name: string;
   platform: string;
+  account_id: string;
   spend: number;
   revenue: number;
   roas: number;
@@ -74,6 +78,9 @@ export interface CampaignRow {
   impressions: number;
   clicks: number;
   ctr: number;
+  campaign_type: "SALES" | "LEAD_GEN";
+  type_source: "AUTO" | "MANUAL";
+  cost_per_lead?: number | null;
 }
 
 export interface Suggestion {

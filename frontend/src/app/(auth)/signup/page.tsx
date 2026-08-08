@@ -22,7 +22,7 @@ export default function SignupPage() {
     try {
       const { data } = await axios.post("/api/v1/auth/signup", form);
       setTokens(data.access_token, data.refresh_token);
-      router.push("/overview");
+      router.push("/onboarding");
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, "Signup failed"));
     } finally {

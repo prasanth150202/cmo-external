@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
+from app.core.config import settings
 from app.db.base import Base
 from app.db.engine import engine
+from app.services.scheduler import start_scheduler, stop_scheduler
 import app.models  # noqa: F401 — ensure all models are registered with Base
 
 app = FastAPI(
@@ -14,7 +16,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -28,6 +30,12 @@ def on_startup():
     # Create all tables if they don't exist yet (dev convenience).
     # In production: use Alembic migrations only.
     Base.metadata.create_all(bind=engine)
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    stop_scheduler()
 
 
 @app.get("/health")

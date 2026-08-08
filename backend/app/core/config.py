@@ -29,6 +29,15 @@ class Settings(BaseSettings):
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    SYNC_INTERVAL_HOURS: int = 4
+    SYNC_ON_STARTUP: bool = True
+
+    # Comma-separated list, e.g. "https://app.digifyce.com,https://cmo-external.vercel.app"
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
+
+    # The frontend origin OAuth callbacks redirect back to (no trailing slash).
+    FRONTEND_URL: str = "http://localhost:3000"
+
     AWS_ACCESS_KEY_ID: Optional[str] = None
     AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_S3_BUCKET: Optional[str] = None

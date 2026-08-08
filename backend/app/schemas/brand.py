@@ -67,4 +67,7 @@ class BrandOverviewItem(BaseModel):
     revenue: float = 0
     roas: float = 0
     conversions: int = 0
+    has_lead_gen: bool = False
+    lead_count: int = 0
+    cost_per_lead: Optional[float] = None
     accounts: List[AccountOut] = []

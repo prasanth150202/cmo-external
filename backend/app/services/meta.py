@@ -14,6 +14,19 @@ def _extract_action(data: Optional[List[Dict]], action_type: str) -> float:
     return 0.0
 
 
+def _map_status(effective_status: Optional[str]) -> Optional[str]:
+    """Meta's effective_status (ACTIVE/PAUSED/CAMPAIGN_PAUSED/ADSET_PAUSED/DELETED/ARCHIVED/...)
+    collapsed to the app's cross-platform convention: ACTIVE / PAUSED / REMOVED."""
+    if not effective_status:
+        return None
+    s = effective_status.upper()
+    if s == "ACTIVE":
+        return "ACTIVE"
+    if s in ("DELETED", "ARCHIVED"):
+        return "REMOVED"
+    return "PAUSED"  # CAMPAIGN_PAUSED, ADSET_PAUSED, PENDING_REVIEW, DISAPPROVED, etc.
+
+
 class MetaService:
     def fetch_account_daily_metrics(
         self,
@@ -125,6 +138,13 @@ class MetaService:
                 },
             )
 
+            # Insights rows carry performance, not status — that's a separate
+            # object fetch, keyed by campaign_id.
+            statuses = {
+                c.get("id"): _map_status(c.get("effective_status"))
+                for c in account.get_campaigns(fields=["id", "effective_status"])
+            }
+
             result = []
             for row in insights:
                 data = row.export_all_data()
@@ -133,10 +153,12 @@ class MetaService:
                 conversions = int(_extract_action(data.get("actions"), "omni_purchase"))
                 roas_list = data.get("purchase_roas")
                 roas = _extract_action(roas_list, "omni_purchase") if roas_list else (revenue / spend if spend > 0 else 0)
+                campaign_id = data.get("campaign_id", "")
                 result.append({
                     "date": data.get("date_start"),
-                    "campaign_id": data.get("campaign_id", ""),
+                    "campaign_id": campaign_id,
                     "campaign_name": data.get("campaign_name", ""),
+                    "status": statuses.get(campaign_id),
                     "spend": round(spend, 2),
                     "revenue": round(revenue, 2),
                     "roas": round(roas, 4),

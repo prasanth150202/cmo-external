@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Tag, BarChart2, Brain, FileText, Settings, Zap, LogOut, TrendingUp } from "lucide-react";
+import { LayoutDashboard, Tag, BarChart2, FileText, Settings, Zap, LogOut, TrendingUp } from "lucide-react";
 import { isAuthenticated, clearTokens } from "@/lib/auth";
 import api from "@/lib/api";
 import { User } from "@/lib/types";
@@ -12,7 +12,6 @@ const NAV = [
   { href: "/brands",     icon: Tag,             label: "Brand Manager" },
   { href: "/analytics",  icon: BarChart2,        label: "Analytics" },
   { href: "/campaigns",  icon: TrendingUp,       label: "Campaigns" },
-  { href: "/ai-engine",  icon: Brain,            label: "Rule Engine" },
   { href: "/reports",    icon: FileText,         label: "Reports" },
   { href: "/settings",   icon: Settings,         label: "Settings" },
 ];
