@@ -15,8 +15,8 @@ export default function AIEnginePage() {
     setLoading(true);
     try {
       const [s, b] = await Promise.all([
-        api.get(`/dashboard/live-state${selectedBrand ? `?brand_id=${selectedBrand}` : ""}`),
-        api.get("/brands/overview"),
+        api.get<any>(`/dashboard/live-state${selectedBrand ? `?brand_id=${selectedBrand}` : ""}`),
+        api.get<any>("/brands/overview"),
       ]);
       setSuggestions(s.data.suggestions || []);
       setEvaluatedAt(s.data.evaluated_at || "");
