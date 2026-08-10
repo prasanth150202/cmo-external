@@ -77,6 +77,22 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* What is this app */}
+      <section className="max-w-3xl mx-auto px-6 pb-24">
+        <div className="p-8 bg-white/5 border border-white/5 rounded-3xl">
+          <h2 className="text-white font-medium text-lg mb-3">What is CMO Dashboard?</h2>
+          <p className="text-slate-400 text-sm leading-relaxed">
+            CMO Dashboard is an ad reporting tool for marketing agencies, built by Digifyce. After you sign in,
+            you connect your own Meta Ads and/or Google Ads accounts via OAuth. The app then reads your campaign
+            performance data — spend, revenue, impressions, clicks, and conversions — directly from those
+            platforms&apos; own APIs, and displays it back to you in a single dashboard, organized by client
+            brand. It does not create, edit, or delete any campaigns, ads, or budgets — access is read-only.
+            Your data is never shared with other users or sold to third parties; see our{" "}
+            <Link href="/privacy" className="text-indigo-400 hover:underline">Privacy Policy</Link> for details.
+          </p>
+        </div>
+      </section>
+
       {/* Features */}
       <section className="max-w-5xl mx-auto px-6 pb-24">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
