@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import {
-  Zap, ArrowRight, Check, Eye, RefreshCw, Link2, BarChart2,
+  ArrowRight, Check, Eye, RefreshCw, Link2, BarChart2,
 } from "lucide-react";
 import { isAuthenticated } from "@/lib/auth";
 
@@ -83,9 +83,8 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 backdrop-blur-md" style={{ background: "rgba(15,17,23,0.8)", borderBottom: "1px solid var(--border)" }}>
         <div className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-indigo-500 rounded-lg flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5 text-white fill-current" />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-mark.png" alt="" className="w-7 h-7" />
             <span className="text-white tracking-tight" style={{ fontFamily: "var(--font-serif)" }}>CMO Dashboard</span>
           </div>
           <div className="hidden md:flex items-center gap-8 text-[13px] font-medium text-slate-400">
@@ -318,9 +317,8 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-6 py-14 grid grid-cols-2 md:grid-cols-4 gap-10">
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-6 h-6 bg-indigo-500 rounded-md flex items-center justify-center">
-                <Zap className="w-3 h-3 text-white fill-current" />
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-mark.png" alt="" className="w-6 h-6" />
               <span className="text-white text-sm" style={{ fontFamily: "var(--font-serif)" }}>CMO Dashboard</span>
             </div>
             <p className="text-slate-500 text-sm leading-relaxed">Ad performance reporting for growth agencies, built by Digifyce.</p>
